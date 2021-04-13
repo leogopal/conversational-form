@@ -733,7 +733,6 @@ var cf;
     };
     var ControlElements = /** @class */ (function () {
         function ControlElements(options) {
-            this.animateInFromReponseTimer = 0;
             this.ignoreKeyboardInput = false;
             this.rowIndex = -1;
             this.columnIndex = 0;
@@ -857,10 +856,10 @@ var cf;
         };
         ControlElements.prototype.onChatReponsesUpdated = function (event) {
             var _this = this;
-            clearTimeout(this.animateInFromReponseTimer);
+            clearTimeout(this.animateInFromResponseTimer);
             // only show when user response
             if (!event.detail.currentResponse.isRobotResponse) {
-                this.animateInFromReponseTimer = setTimeout(function () {
+                this.animateInFromResponseTimer = setTimeout(function () {
                     _this.animateElementsIn();
                 }, this.cfReference.uiOptions.controlElementsInAnimationDelay);
             }
@@ -1027,17 +1026,31 @@ var cf;
             }
         };
         ControlElements.prototype.animateElementsIn = function () {
-            if (this.elements) {
+            var _this = this;
+            if (this.elements.length > 0) {
                 this.resize();
-                var elements = this.getElements();
-                if (elements.length > 0) {
-                    if (!this.el.classList.contains("animate-in"))
-                        this.el.classList.add("animate-in");
-                    for (var i = 0; i < elements.length; i++) {
-                        var element = elements[i];
-                        element.animateIn();
-                    }
-                }
+                // this.el.style.transition = 'height 0.35s ease-out 0.2s';
+                this.list.style.height = '0px';
+                setTimeout(function () {
+                    _this.list.style.height = _this.list.scrollHeight + 'px';
+                    var elements = _this.getElements();
+                    setTimeout(function () {
+                        if (elements.length > 0) {
+                            if (!_this.el.classList.contains("animate-in"))
+                                _this.el.classList.add("animate-in");
+                            for (var i = 0; i < elements.length; i++) {
+                                var element = elements[i];
+                                element.animateIn();
+                            }
+                        }
+                        document.querySelector('.scrollableInner').classList.remove('scroll');
+                        // Check if chatlist is scrolled to the bottom - if not we need to do it manually (pertains to Chrome)
+                        var scrollContainer = document.querySelector('scrollable');
+                        if (scrollContainer.scrollTop < scrollContainer.scrollHeight) {
+                            scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                        }
+                    }, 300);
+                }, 200);
             }
         };
         ControlElements.prototype.getElements = function () {
@@ -1094,7 +1107,9 @@ var cf;
             }
             if (this.tableableRows[this.rowIndex] && this.tableableRows[this.rowIndex][this.columnIndex]) {
                 this.ignoreKeyboardInput = true;
-                this.tableableRows[this.rowIndex][this.columnIndex].focus = true;
+                if (!this.cfReference.options.preventAutoFocus) {
+                    this.tableableRows[this.rowIndex][this.columnIndex].focus = true;
+                }
             }
             else {
                 this.resetTabList();
@@ -1140,6 +1155,8 @@ var cf;
             this.infoElement.classList.remove("show");
             this.el.classList.remove("one-row");
             this.el.classList.remove("two-row");
+            // this.el.style.transition = 'height 0.35s ease-out 0.2s';
+            this.list.style.height = '0px';
         };
         ControlElements.prototype.getElement = function (index) {
             return this.elements[index];
@@ -1461,7 +1478,7 @@ var cf;
             // normalise startX
             this.startX += (this.startXTarget - this.startX) * 0.2;
             // animate accerlaration
-            this.inputAccerlation += (this.inputAccerlationTarget - this.inputAccerlation) * (this.interacting ? Math.min(ScrollController.accerlation + 0.1, 1) : ScrollController.accerlation);
+            this.inputAccerlation += (this.inputAccerlationTarget - this.inputAccerlation) * (this.interacting ? Math.min(ScrollController.acceleration + 0.1, 1) : ScrollController.acceleration);
             var accDamping = 0.25;
             this.inputAccerlationTarget *= accDamping;
             // animate directions
@@ -1473,9 +1490,9 @@ var cf;
             this.xTarget += this.inputAccerlation * 0.05;
             // bounce back when over
             if (this.xTarget > 0)
-                this.xTarget += (0 - this.xTarget) * cf.Helpers.lerp(ScrollController.accerlation, 0.3, 0.8);
+                this.xTarget += (0 - this.xTarget) * cf.Helpers.lerp(ScrollController.acceleration, 0.3, 0.8);
             if (this.xTarget < this.max)
-                this.xTarget += (this.max - this.xTarget) * cf.Helpers.lerp(ScrollController.accerlation, 0.3, 0.8);
+                this.xTarget += (this.max - this.xTarget) * cf.Helpers.lerp(ScrollController.acceleration, 0.3, 0.8);
             this.x += (this.xTarget - this.x) * 0.4;
             // toggle visibility on nav arrows
             var xRounded = Math.round(this.x);
@@ -1553,10 +1570,48 @@ var cf;
             this.max = (this.listWidth - this.visibleAreaWidth) * -1;
             this.render();
         };
-        ScrollController.accerlation = 0.1;
+        ScrollController.acceleration = 0.1;
         return ScrollController;
     }());
     cf.ScrollController = ScrollController;
+})(cf || (cf = {}));
+
+/// <reference path="../logic/FlowManager.ts"/>
+// namespace
+var cf;
+(function (cf) {
+    // interface
+    // class
+    var ProgressBar = /** @class */ (function () {
+        function ProgressBar(options) {
+            var _this = this;
+            this.flowUpdateCallback = this.onFlowUpdate.bind(this);
+            this.eventTarget = options.eventTarget;
+            this.eventTarget.addEventListener(cf.FlowEvents.FLOW_UPDATE, this.flowUpdateCallback, false);
+            this.eventTarget.addEventListener(cf.FlowEvents.FORM_SUBMIT, function () { return _this.setWidth(100); }, false);
+            this.el = document.createElement("div");
+            this.el.className = "cf-progressBar";
+            this.bar = document.createElement("div");
+            this.bar.className = 'bar';
+            this.el.appendChild(this.bar);
+            setTimeout(function () { return _this.init(); }, 800);
+        }
+        ProgressBar.prototype.init = function () {
+            this.el.classList.add('show');
+        };
+        ProgressBar.prototype.onFlowUpdate = function (event) {
+            this.setWidth(event.detail.step / event.detail.maxSteps * 100);
+        };
+        ProgressBar.prototype.setWidth = function (percentage) {
+            this.bar.style.width = percentage + "%";
+        };
+        ProgressBar.prototype.dealloc = function () {
+            this.eventTarget.removeEventListener(cf.FlowEvents.FLOW_UPDATE, this.flowUpdateCallback, false);
+            this.flowUpdateCallback = null;
+        };
+        return ProgressBar;
+    }());
+    cf.ProgressBar = ProgressBar;
 })(cf || (cf = {}));
 
 /// <reference path="../logic/Helpers.ts"/>
@@ -1568,18 +1623,18 @@ var cf;
         function Dictionary(options) {
             // can be overwrittenMicrophone error
             this.data = {
-                "user-image": "https://cf-4053.kxcdn.com/conversational-form/human.png",
+                "user-image": 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iMTAwIiBmaWxsPSIjMzAzMDMwIi8+CjxwYXRoIGQ9Ik0xMDAgNTVMMTM4Ljk3MSAxMjIuNUg2MS4wMjg5TDEwMCA1NVoiIGZpbGw9IiNFNUU2RUEiLz4KPC9zdmc+Cg==',
                 "entry-not-found": "Dictionary item not found.",
                 "awaiting-mic-permission": "Awaiting mic permission",
                 "user-audio-reponse-invalid": "I didn't get that, try again.",
                 "microphone-terminal-error": "Audio input not supported",
                 "input-placeholder": "Type your answer here ...",
-                "group-placeholder": "Type to filter list ...",
+                "group-placeholder": "Type to filter ...",
                 "input-placeholder-error": "Your input is not correct ...",
                 "input-placeholder-required": "Input is required ...",
                 "input-placeholder-file-error": "File upload failed ...",
                 "input-placeholder-file-size-error": "File size too big ...",
-                "input-no-filter": "No results found for <strong>{input-value}</strong>",
+                "input-no-filter": "No results found for ‛{input-value}‛",
                 "user-reponse-and": " and ",
                 "user-reponse-missing": "Missing input ...",
                 "user-reponse-missing-group": "Nothing selected ...",
@@ -1588,9 +1643,10 @@ var cf;
             };
             // can be overwriten
             this.robotData = {
-                "robot-image": "https://cf-4053.kxcdn.com/conversational-form/robot.png",
+                "robot-image": 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxjaXJjbGUgY3g9IjEwMCIgY3k9IjEwMCIgcj0iMTAwIiBmaWxsPSIjRTVFNkVBIi8+CjxyZWN0IHg9IjY2IiB5PSI2NiIgd2lkdGg9IjY4IiBoZWlnaHQ9IjY4IiBmaWxsPSIjMzAzMDMwIi8+Cjwvc3ZnPgo=',
                 "input": "Please write some text.",
                 "text": "Please write some text.",
+                "textarea": "Please write some text.",
                 "checkbox": "Select as many as you want.",
                 "name": "What's your name?",
                 "email": "Need your e-mail.",
@@ -1602,15 +1658,24 @@ var cf;
                 "general": "General1||General2||General3.."
             };
             Dictionary.instance = this;
+            this.version = options.version;
             // overwrite data if defined 
             if (options && options.data)
                 this.data = this.validateAndSetNewData(options.data, this.data);
             // overwrite user image
-            if (options.userImage)
+            if (options.userImage) {
                 this.data["user-image"] = options.userImage;
+            }
+            else {
+                this.data['user-image'] = this.data['user-image'];
+            }
             // overwrite robot image
-            if (options.robotImage)
+            if (options.robotImage) {
                 this.robotData["robot-image"] = options.robotImage;
+            }
+            else {
+                this.robotData['robot-image'] = this.robotData['robot-image'];
+            }
             // overwrite robot questions if defined
             if (options && options.robotData)
                 this.robotData = this.validateAndSetNewData(options.robotData, this.robotData);
@@ -1728,18 +1793,14 @@ var cf;
             // questions array
             if (options.questions)
                 this.questions = options.questions;
-            // custom tag validation
+            // custom tag validation - must be a method on window to avoid unsafe eval() calls
             if (this.domElement.getAttribute("cf-validation")) {
-                // set it through an attribute, danger land with eval
-                this.validationCallback = eval(this.domElement.getAttribute("cf-validation"));
+                var fn = window[this.domElement.getAttribute("cf-validation")];
+                this.validationCallback = fn;
             }
             // reg ex pattern is set on the Tag, so use it in our validation
             if (this.domElement.getAttribute("pattern"))
                 this.pattern = new RegExp(this.domElement.getAttribute("pattern"));
-            // if(this.type == "email" && !this.pattern){
-            // 	// set a standard e-mail pattern for email type input
-            // 	this.pattern = new RegExp("^[^@]+@[^@]+\.[^@]+$");
-            // }
             if (this.type != "group" && cf.ConversationalForm.illustrateAppFlow) {
                 if (!cf.ConversationalForm.suppressLog)
                     console.log('Conversational Form > Tag registered:', this.type, this);
@@ -2045,6 +2106,21 @@ var cf;
             // validation
             var isValid = true;
             var valueText = dto.text;
+            if (this.domElement.hasAttribute('type')
+                && this.domElement.getAttribute('type') === 'email'
+                && !this.pattern
+                && valueText.length > 0) {
+                this.pattern = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/;
+            }
+            else if (
+            // When NOT required: Reset in the event user already typed something, and now they clear their input and want to submit nothing ==> remove pattern previously applied
+            this.domElement.hasAttribute('type')
+                && this.domElement.getAttribute('type') === 'email'
+                && this.pattern
+                && valueText.length === 0
+                && !this.required) {
+                this.pattern = null;
+            }
             if (this.pattern) {
                 isValid = this.pattern.test(valueText);
             }
@@ -2061,15 +2137,35 @@ var cf;
             if (max != -1 && valueText.length > max) {
                 isValid = false;
             }
+            var isMaxMinValueValid = this.validateMaxMinValue(valueText);
+            if (!isMaxMinValueValid)
+                isValid = false;
             if (isValid) {
                 // we cannot set the dom element value when type is file
                 if (this.type != "file")
                     this.domElement.value = valueText;
             }
-            else {
-                // throw new Error("cf-: value:string is not valid. Value: "+value);
-            }
             return isValid;
+        };
+        /**
+         * Validates value against tag max and min attributes
+         *
+         * @private
+         * @param {string} value
+         * @returns {boolean}
+         * @memberof Tag
+         */
+        Tag.prototype.validateMaxMinValue = function (value) {
+            if (!value)
+                return true;
+            var parsedValue = parseInt(value, 10);
+            var minValue = parseInt(this.domElement.getAttribute("min"), 10) || -1;
+            var maxValue = parseInt(this.domElement.getAttribute("max"), 10) || -1;
+            if (minValue !== -1 && parsedValue < minValue)
+                return false;
+            if (maxValue !== -1 && parsedValue > maxValue)
+                return false;
+            return true;
         };
         Tag.prototype.getLabel = function () {
             if (!this._label)
@@ -4049,7 +4145,6 @@ var cf;
         __extends(UserTextInput, _super);
         function UserTextInput(options) {
             var _this = _super.call(this, options) || this;
-            _this.errorTimer = 0;
             _this.initialInputHeight = 0;
             _this.shiftIsDown = false;
             //acts as a fallback for ex. shadow dom implementation
@@ -4061,6 +4156,9 @@ var cf;
             _this.onInputBlurCallback = _this.onInputBlur.bind(_this);
             _this.inputElement.addEventListener('focus', _this.onInputFocusCallback, false);
             _this.inputElement.addEventListener('blur', _this.onInputBlurCallback, false);
+            if (!cf.ConversationalForm.animationsEnabled) {
+                _this.inputElement.setAttribute('no-animations', '');
+            }
             //<cf-input-control-elements> is defined in the ChatList.ts
             _this.controlElements = new cf.ControlElements({
                 el: _this.el.getElementsByTagName("cf-input-control-elements")[0],
@@ -4085,7 +4183,7 @@ var cf;
             _this.submitButton = new cf.UserInputSubmitButton({
                 eventTarget: _this.eventTarget
             });
-            _this.el.appendChild(_this.submitButton.el);
+            _this.el.querySelector('div').appendChild(_this.submitButton.el);
             // setup microphone support, audio
             if (options.microphoneInputObj) {
                 _this.microphoneObj = options.microphoneInputObj;
@@ -4195,12 +4293,21 @@ var cf;
                 return;
             // safari likes to jump around with the scrollHeight value, let's keep it in check with an initial height.
             var oldHeight = Math.max(this.initialInputHeight, parseInt(this.inputElement.style.height, 10));
-            this.inputElement.style.height = "0px";
+            this.inputElement.style.height = '0px';
+            // console.log(this.inputElement.style.height, this.inputElement.style);
             this.inputElement.style.height = (this.inputElement.scrollHeight === 0 ? oldHeight : this.inputElement.scrollHeight) + "px";
             cf.ConversationalForm.illustrateFlow(this, "dispatch", cf.UserInputEvents.HEIGHT_CHANGE);
             this.eventTarget.dispatchEvent(new CustomEvent(cf.UserInputEvents.HEIGHT_CHANGE, {
                 detail: this.inputElement.scrollHeight
             }));
+        };
+        UserTextInput.prototype.resetInputHeight = function () {
+            if (this.inputElement.getAttribute('rows') === '1') {
+                this.inputElement.style.height = this.initialInputHeight + 'px';
+            }
+            else {
+                this.inputElement.style.height = '0px';
+            }
         };
         UserTextInput.prototype.inputInvalid = function (event) {
             var _this = this;
@@ -4243,33 +4350,40 @@ var cf;
                 this.inputElement.setAttribute("placeholder", cf.Dictionary.get("group-placeholder"));
             }
         };
+        /**
+         * TODO: handle detect input/textarea in a simpler way - too conditional heavy
+         *
+         * @private
+         * @memberof UserTextInput
+         */
         UserTextInput.prototype.checkForCorrectInputTag = function () {
-            // handle password natively
-            var currentType = this.inputElement.getAttribute("type");
-            var isCurrentInputTypeTextAreaButNewTagPassword = this._currentTag.type == "password" && currentType != "password";
-            var isCurrentInputTypeInputButNewTagNotPassword = this._currentTag.type != "password" && currentType == "password";
-            var isCurrentInputTypeTextAreaButNewTagNumberOrEmail = (this._currentTag.type == "email" && currentType != "email") || (this._currentTag.type == "number" && currentType != "number");
+            var tagName = this.tagType(this._currentTag);
             // remove focus and blur events, because we want to create a new element
-            if (this.inputElement && (isCurrentInputTypeTextAreaButNewTagPassword || isCurrentInputTypeInputButNewTagNotPassword)) {
+            if (this.inputElement && this.inputElement.tagName !== tagName) {
                 this.inputElement.removeEventListener('focus', this.onInputFocusCallback, false);
                 this.inputElement.removeEventListener('blur', this.onInputBlurCallback, false);
             }
-            if (isCurrentInputTypeTextAreaButNewTagPassword || isCurrentInputTypeTextAreaButNewTagNumberOrEmail) {
+            this.removeAttribute('autocomplete');
+            this.removeAttribute('list');
+            if (tagName === 'INPUT') {
                 // change to input
                 var input_1 = document.createElement("input");
                 Array.prototype.slice.call(this.inputElement.attributes).forEach(function (item) {
                     input_1.setAttribute(item.name, item.value);
                 });
-                input_1.setAttribute("autocomplete", "new-password");
+                if (this.inputElement.type === 'password') {
+                    input_1.setAttribute("autocomplete", "new-password");
+                }
+                if (this._currentTag.domElement.hasAttribute('autocomplete')) {
+                    input_1.setAttribute('autocomplete', this._currentTag.domElement.getAttribute('autocomplete'));
+                }
+                if (this._currentTag.domElement.hasAttribute('list')) {
+                    input_1.setAttribute('list', this._currentTag.domElement.getAttribute('list'));
+                }
                 this.inputElement.parentNode.replaceChild(input_1, this.inputElement);
                 this.inputElement = input_1;
-                if (this._currentTag.type === "number" || this._currentTag.type === "email") {
-                    // if field is type number or email then add type to user input
-                    this.inputElement.type = this._currentTag.type;
-                    input_1.setAttribute("type", this._currentTag.type);
-                }
             }
-            else if (isCurrentInputTypeInputButNewTagNotPassword) {
+            else if (this.inputElement && this.inputElement.tagName !== tagName) {
                 // change to textarea
                 var textarea_1 = document.createElement("textarea");
                 Array.prototype.slice.call(this.inputElement.attributes).forEach(function (item) {
@@ -4279,7 +4393,7 @@ var cf;
                 this.inputElement = textarea_1;
             }
             // add focus and blur events to newly created input element
-            if (this.inputElement && (isCurrentInputTypeTextAreaButNewTagPassword || isCurrentInputTypeInputButNewTagNotPassword)) {
+            if (this.inputElement && this.inputElement.tagName !== tagName) {
                 this.inputElement.addEventListener('focus', this.onInputFocusCallback, false);
                 this.inputElement.addEventListener('blur', this.onInputBlurCallback, false);
             }
@@ -4288,6 +4402,32 @@ var cf;
                 this.initialInputHeight = this.inputElement.offsetHeight;
             }
             this.setFocusOnInput();
+        };
+        /**
+         * Removes attribute on input element if attribute is present
+         *
+         * @private
+         * @param {string} attribute
+         * @memberof UserTextInput
+         */
+        UserTextInput.prototype.removeAttribute = function (attribute) {
+            if (this.inputElement
+                && this.inputElement.hasAttribute(attribute)) {
+                this.inputElement.removeAttribute(attribute);
+            }
+        };
+        UserTextInput.prototype.tagType = function (inputElement) {
+            if (!inputElement.domElement
+                || !inputElement.domElement.tagName) {
+                return 'TEXTAREA';
+            }
+            if (inputElement.domElement.tagName === 'TEXTAREA'
+                || (inputElement.domElement.hasAttribute('rows')
+                    && parseInt(inputElement.domElement.getAttribute('rows'), 10) > 1))
+                return 'TEXTAREA';
+            if (inputElement.domElement.tagName === 'INPUT')
+                return 'INPUT';
+            return 'TEXTAREA'; // TODO
         };
         UserTextInput.prototype.onFlowUpdate = function (event) {
             var _this = this;
@@ -4300,7 +4440,7 @@ var cf;
             // replace textarea and visa versa
             this.checkForCorrectInputTag();
             // set input field to type password if the dom input field is that, covering up the input
-            var isInputSpecificType = ["password", "number", "email"].indexOf(this._currentTag.type) !== -1;
+            var isInputSpecificType = ["password", "number", "email", "tel"].indexOf(this._currentTag.type) !== -1;
             this.inputElement.setAttribute("type", isInputSpecificType ? this._currentTag.type : "input");
             clearTimeout(this.errorTimer);
             this.el.removeAttribute("error");
@@ -4317,7 +4457,7 @@ var cf;
             else {
                 this.buildControlElements([this._currentTag]);
             }
-            if (this._currentTag.type == "text" || this._currentTag.type == "email") {
+            if (this._currentTag.defaultValue) {
                 this.inputElement.value = this._currentTag.defaultValue.toString();
             }
             if (this._currentTag.skipUserInput === true) {
@@ -4341,9 +4481,10 @@ var cf;
                     this.el.classList.remove("hide-input");
                 }
             }
+            this.resetInputHeight();
             setTimeout(function () {
                 _this.onInputChange();
-            }, 150);
+            }, 300);
         };
         UserTextInput.prototype.onControlElementProgressChange = function (event) {
             var status = event.detail;
@@ -4573,7 +4714,7 @@ var cf;
         };
         // override
         UserTextInput.prototype.getTemplate = function () {
-            return this.customTemplate || "<cf-input>\n\t\t\t\t<cf-info></cf-info>\n\t\t\t\t<cf-input-control-elements>\n\t\t\t\t\t<cf-list-button direction=\"prev\">\n\t\t\t\t\t</cf-list-button>\n\t\t\t\t\t<cf-list-button direction=\"next\">\n\t\t\t\t\t</cf-list-button>\n\t\t\t\t\t<cf-list>\n\t\t\t\t\t</cf-list>\n\t\t\t\t</cf-input-control-elements>\n\n\t\t\t\t<textarea type='input' tabindex=\"1\" rows=\"1\"></textarea>\n\n\t\t\t</cf-input>\n\t\t\t";
+            return this.customTemplate || "<cf-input>\n\t\t\t\t<cf-info></cf-info>\n\t\t\t\t<cf-input-control-elements>\n\t\t\t\t\t<cf-list-button direction=\"prev\">\n\t\t\t\t\t</cf-list-button>\n\t\t\t\t\t<cf-list-button direction=\"next\">\n\t\t\t\t\t</cf-list-button>\n\t\t\t\t\t<cf-list>\n\t\t\t\t\t</cf-list>\n\t\t\t\t</cf-input-control-elements>\n\t\t\t\t<div class=\"inputWrapper\">\n\t\t\t\t\t<textarea type='input' tabindex=\"1\" rows=\"1\"></textarea>\n\t\t\t\t</div>\n\t\t\t</cf-input>\n\t\t\t";
         };
         return UserTextInput;
     }(cf.UserInputElement));
@@ -4608,7 +4749,6 @@ var cf;
         __extends(ChatResponse, _super);
         function ChatResponse(options) {
             var _this = _super.call(this, options) || this;
-            _this.readyTimer = 0;
             _this.container = options.container;
             _this.uiOptions = options.cfReference.uiOptions;
             _this._tag = options.tag;
@@ -4623,7 +4763,7 @@ var cf;
         });
         Object.defineProperty(ChatResponse.prototype, "added", {
             get: function () {
-                return !!this.el.parentNode.parentNode;
+                return !!this.el || !!this.el.parentNode || !!this.el.parentNode.parentNode;
             },
             enumerable: true,
             configurable: true
@@ -4641,11 +4781,52 @@ var cf;
             enumerable: true,
             configurable: true
         });
+        /**
+         * We depend on scroll in a column-reverse flex container. This is where Edge and Firefox comes up short
+         */
+        ChatResponse.prototype.hasFlexBug = function () {
+            return this.cfReference.el.classList.contains('browser-firefox') || this.cfReference.el.classList.contains('browser-edge');
+        };
+        ChatResponse.prototype.animateIn = function () {
+            var _this = this;
+            var outer = document.querySelector('scrollable');
+            var inner = document.querySelector('.scrollableInner');
+            if (this.hasFlexBug())
+                inner.classList.remove('scroll');
+            requestAnimationFrame(function () {
+                var height = _this.el.scrollHeight;
+                _this.el.style.height = '0px';
+                requestAnimationFrame(function () {
+                    _this.el.style.height = height + 'px';
+                    _this.el.classList.add('show');
+                    // Listen for transitionend and set to height:auto
+                    try {
+                        var sm = window.getComputedStyle(document.querySelectorAll('p.show')[0]);
+                        var cssAnimationTime = +sm.animationDuration.replace('s', ''); // format '0.234234xs
+                        var cssAnimationDelayTime = +sm.animationDelay.replace('s', '');
+                        setTimeout(function () {
+                            _this.el.style.height = 'auto';
+                            if (_this.hasFlexBug() && inner.scrollHeight > outer.offsetHeight) {
+                                inner.classList.add('scroll');
+                                inner.scrollTop = inner.scrollHeight;
+                            }
+                        }, (cssAnimationTime + cssAnimationDelayTime) * 1500);
+                    }
+                    catch (err) {
+                        // Fallback method. Assuming animations do not take longer than 1000ms
+                        setTimeout(function () {
+                            if (_this.hasFlexBug() && inner.scrollHeight > outer.offsetHeight) {
+                                inner.classList.add('scroll');
+                                inner.scrollTop = inner.scrollHeight;
+                            }
+                            _this.el.style.height = 'auto';
+                        }, 3000);
+                    }
+                });
+            });
+        };
         Object.defineProperty(ChatResponse.prototype, "visible", {
             set: function (value) {
-                var _this = this;
-                this.el.offsetWidth;
-                setTimeout(function () { return value ? _this.el.classList.add("show") : _this.el.classList.remove("show"); }, 100);
             },
             enumerable: true,
             configurable: true
@@ -4665,10 +4846,10 @@ var cf;
             this.onReadyCallback = resolve;
         };
         ChatResponse.prototype.setValue = function (dto) {
+            // if(!this.visible){
+            // 	this.visible = true;
+            // }
             if (dto === void 0) { dto = null; }
-            if (!this.visible) {
-                this.visible = true;
-            }
             var isThinking = this.el.hasAttribute("thinking");
             if (!dto) {
                 this.setToThinking();
@@ -4734,8 +4915,8 @@ var cf;
                 }
                 innerResponse = newStr;
             }
+            // if robot, then check linked response for binding values
             if (this.responseLink && this.isRobotResponse) {
-                // if robot, then check linked response for binding values
                 // one way data binding values:
                 innerResponse = innerResponse.split("{previous-answer}").join(this.responseLink.parsedResponse);
             }
@@ -4757,14 +4938,11 @@ var cf;
                         }
                     }
                 }
-                // add more..
-                // innerResponse = innerResponse.split("{...}").join(this.responseLink.parsedResponse);
             }
             // check if response contains an image as answer
             var responseContains = innerResponse.indexOf("contains-image") != -1;
             if (responseContains)
                 this.textEl.classList.add("contains-image");
-            // if(this.response != innerResponse){
             // now set it
             if (this.isRobotResponse) {
                 this.textEl.innerHTML = "";
@@ -4776,20 +4954,40 @@ var cf;
                 }
                 // robot response, allow for && for multiple responses
                 var chainedResponses = innerResponse.split("&&");
-                var _loop_1 = function (i_2) {
-                    var str = chainedResponses[i_2];
-                    setTimeout(function () {
-                        _this.tryClearThinking();
-                        _this.textEl.innerHTML += "<p>" + str + "</p>";
-                        var p = _this.textEl.getElementsByTagName("p");
-                        p[p.length - 1].offsetWidth;
-                        p[p.length - 1].classList.add("show");
-                        _this.scrollTo();
-                    }, robotInitResponseTime + ((i_2 + 1) * this_1.uiOptions.robot.chainedResponseTime));
-                };
-                var this_1 = this;
-                for (var i_2 = 0; i_2 < chainedResponses.length; i_2++) {
-                    _loop_1(i_2);
+                if (robotInitResponseTime === 0) {
+                    for (var i_2 = 0; i_2 < chainedResponses.length; i_2++) {
+                        var str = chainedResponses[i_2];
+                        this.textEl.innerHTML += "<p>" + str + "</p>";
+                    }
+                    var _loop_1 = function (i_3) {
+                        setTimeout(function () {
+                            _this.tryClearThinking();
+                            var p = _this.textEl.getElementsByTagName("p");
+                            p[i_3].classList.add("show");
+                            _this.scrollTo();
+                        }, chainedResponses.length > 1 && i_3 > 0 ? robotInitResponseTime + ((i_3 + 1) * this_1.uiOptions.robot.chainedResponseTime) : 0);
+                    };
+                    var this_1 = this;
+                    for (var i_3 = 0; i_3 < chainedResponses.length; i_3++) {
+                        _loop_1(i_3);
+                    }
+                }
+                else {
+                    var _loop_2 = function (i_4) {
+                        var revealAfter = robotInitResponseTime + (i_4 * this_2.uiOptions.robot.chainedResponseTime);
+                        var str = chainedResponses[i_4];
+                        setTimeout(function () {
+                            _this.tryClearThinking();
+                            _this.textEl.innerHTML += "<p>" + str + "</p>";
+                            var p = _this.textEl.getElementsByTagName("p");
+                            p[i_4].classList.add("show");
+                            _this.scrollTo();
+                        }, revealAfter);
+                    };
+                    var this_2 = this;
+                    for (var i_4 = 0; i_4 < chainedResponses.length; i_4++) {
+                        _loop_2(i_4);
+                    }
                 }
                 this.readyTimer = setTimeout(function () {
                     if (_this.onReadyCallback)
@@ -4807,7 +5005,16 @@ var cf;
             else {
                 // user response, act normal
                 this.tryClearThinking();
-                this.textEl.innerHTML = "<p>" + innerResponse + "</p>";
+                var hasImage = innerResponse.indexOf('<img') > -1;
+                var imageRegex = new RegExp('<img[^>]*?>', 'g');
+                var imageTag = innerResponse.match(imageRegex);
+                if (hasImage && imageTag) {
+                    innerResponse = innerResponse.replace(imageTag[0], '');
+                    this.textEl.innerHTML = "<p class=\"hasImage\">" + imageTag + "<span>" + innerResponse + "</span></p>";
+                }
+                else {
+                    this.textEl.innerHTML = "<p>" + innerResponse + "</p>";
+                }
                 var p = this.textEl.getElementsByTagName("p");
                 p[p.length - 1].offsetWidth;
                 p[p.length - 1].classList.add("show");
@@ -4816,7 +5023,15 @@ var cf;
             this.parsedResponse = innerResponse;
             // }
             // value set, so add element, if not added
-            this.addSelf();
+            if (this.uiOptions.robot
+                && this.uiOptions.robot.robotResponseTime === 0) {
+                this.addSelf();
+            }
+            else {
+                setTimeout(function () {
+                    _this.addSelf();
+                }, 0);
+            }
             // bounce
             this.textEl.removeAttribute("value-added");
             setTimeout(function () {
@@ -4833,7 +5048,11 @@ var cf;
             var h = this.el.offsetHeight;
             if (!this.container && this.el)
                 this.container = this.el; // On edit this.container is empty so this is a fix to reassign it. Not ideal, but...
-            this.container.scrollTop = y + h + this.container.scrollTop;
+            if (this.container
+                && this.container.parentElement
+                && this.container.parentElement.scrollHeight) {
+                this.container.parentElement.scrollTop = y + h + this.container.parentElement.scrollHeight;
+            }
         };
         ChatResponse.prototype.checkForEditMode = function () {
             if (!this.isRobotResponse && !this.el.hasAttribute("thinking")) {
@@ -4865,6 +5084,7 @@ var cf;
         ChatResponse.prototype.addSelf = function () {
             if (this.el.parentNode != this.container) {
                 this.container.appendChild(this.el);
+                this.animateIn();
             }
         };
         /**
@@ -4976,6 +5196,8 @@ var cf;
         ChatList.prototype.onInputHeightChange = function (event) {
             var dto = event.detail.dto;
             cf.ConversationalForm.illustrateFlow(this, "receive", event.type, dto);
+            // this.input.controlElements.el.style.transition = "height 2s ease-out";
+            // this.input.controlElements.el.style.height = this.input.controlElements.el.scrollHeight + 'px';
             this.onInputElementChanged();
         };
         ChatList.prototype.onInputKeyChange = function (event) {
@@ -5027,7 +5249,7 @@ var cf;
             var cfHeight = this.cfReference.el.offsetHeight;
             var inputHeight = this.input.height;
             var listHeight = cfHeight - inputHeight;
-            this.el.style.height = listHeight + "px";
+            //this.el.style.height = listHeight + "px";
         };
         ChatList.prototype.onFlowUpdate = function (event) {
             var _this = this;
@@ -5163,7 +5385,7 @@ var cf;
         };
         ChatList.prototype.createResponse = function (isRobotResponse, currentTag, value) {
             if (value === void 0) { value = null; }
-            var scrollable = this.el.querySelector("scrollable");
+            var scrollable = this.el.querySelector(".scrollableInner");
             var response = new cf.ChatResponse({
                 // image: null,
                 cfReference: this.cfReference,
@@ -5181,7 +5403,7 @@ var cf;
             return response;
         };
         ChatList.prototype.getTemplate = function () {
-            return "<cf-chat type='pluto'>\n\t\t\t\t\t\t<scrollable></scrollable>\n\t\t\t\t\t</cf-chat>";
+            return "<cf-chat type='pluto'>\n\t\t\t\t\t\t<scrollable>\n\t\t\t\t\t\t\t<div class=\"scrollableInner\"></div>\n\t\t\t\t\t\t</scrollable>\n\t\t\t\t\t</cf-chat>";
         };
         ChatList.prototype.dealloc = function () {
             this.eventTarget.removeEventListener(cf.FlowEvents.FLOW_UPDATE, this.flowUpdateCallback, false);
@@ -5207,6 +5429,7 @@ var cf;
         USER_INPUT_INVALID: "cf-flow-user-input-invalid",
         //	detail: string
         FLOW_UPDATE: "cf-flow-update",
+        FORM_SUBMIT: "cf-form-submit",
     };
     // class
     var FlowManager = /** @class */ (function () {
@@ -5450,6 +5673,7 @@ var cf;
             if (this.maxSteps > 0) {
                 if (this.step == this.maxSteps) {
                     // console.warn("We are at the end..., submit click")
+                    this.eventTarget.dispatchEvent(new CustomEvent(cf.FlowEvents.FORM_SUBMIT, {}));
                     this.cfReference.doSubmitForm();
                 }
                 else {
@@ -5474,7 +5698,9 @@ var cf;
                 _this.eventTarget.dispatchEvent(new CustomEvent(cf.FlowEvents.FLOW_UPDATE, {
                     detail: {
                         tag: _this.currentTag,
-                        ignoreExistingTag: _this.ignoreExistingTags
+                        ignoreExistingTag: _this.ignoreExistingTags,
+                        step: _this.step,
+                        maxSteps: _this.maxSteps
                     }
                 }));
             }, 0);
@@ -5488,6 +5714,7 @@ var cf;
 /// <reference path="ui/inputs/UserTextInput.ts"/>
 /// <reference path="ui/chat/ChatList.ts"/>
 /// <reference path="logic/FlowManager.ts"/>
+/// <reference path="ui/ProgressBar.ts"/>
 /// <reference path="logic/EventDispatcher.ts"/>
 /// <reference path="form-tags/Tag.ts"/>
 /// <reference path="form-tags/CfRobotMessageTag.ts"/>
@@ -5503,16 +5730,19 @@ var cf;
 (function (cf_1) {
     var ConversationalForm = /** @class */ (function () {
         function ConversationalForm(options) {
-            this.version = "0.9.90";
+            this.version = "1.0.2";
             this.cdnPath = "https://cdn.jsdelivr.net/gh/space10-community/conversational-form@{version}/dist/";
             this.isDevelopment = false;
             this.loadExternalStyleSheet = true;
+            this.theme = 'light';
             this.preventAutoAppend = false;
             this.preventAutoStart = false;
             window.ConversationalForm = this;
             this.cdnPath = this.cdnPath.split("{version}").join(this.version);
             if (typeof options.suppressLog === 'boolean')
                 ConversationalForm.suppressLog = options.suppressLog;
+            if (typeof options.showProgressBar === 'boolean')
+                ConversationalForm.showProgressBar = options.showProgressBar;
             if (typeof options.preventSubmitOnEnter === 'boolean')
                 this.preventSubmitOnEnter = options.preventSubmitOnEnter;
             if (!ConversationalForm.suppressLog)
@@ -5529,11 +5759,13 @@ var cf;
             if (options.flowStepCallback)
                 this.flowStepCallback = options.flowStepCallback;
             this.isDevelopment = ConversationalForm.illustrateAppFlow = !!document.getElementById("conversational-form-development");
-            if (this.isDevelopment || options.loadExternalStyleSheet == false) {
+            if (options.loadExternalStyleSheet == false) {
                 this.loadExternalStyleSheet = false;
             }
-            if (!isNaN(options.scrollAccerlation))
-                cf_1.ScrollController.accerlation = options.scrollAccerlation;
+            if (typeof options.theme === 'string')
+                this.theme = options.theme;
+            if (!isNaN(options.scrollAcceleration))
+                cf_1.ScrollController.acceleration = options.scrollAcceleration;
             this.preventAutoStart = options.preventAutoStart;
             this.preventAutoAppend = options.preventAutoAppend;
             if (!options.formEl)
@@ -5543,15 +5775,19 @@ var cf;
             if (options.hideUserInputOnNoneTextInput === true) {
                 cf_1.UserInputElement.hideUserInputOnNoneTextInput = true;
             }
-            // TODO: can be a string when added as formless..
-            // this.validationCallback = eval(this.domElement.getAttribute("cf-validation"));
             this.submitCallback = options.submitCallback;
             if (this.submitCallback && typeof this.submitCallback === "string") {
-                // a submit callback method added to json, so use eval to evaluate method
-                this.submitCallback = eval(this.submitCallback);
+                // Must be a string on window, rewritten to avoid unsafe eval() calls
+                var fn = window[this.submitCallback];
+                this.submitCallback = fn;
             }
             if (this.formEl.getAttribute("cf-no-animation") == "")
                 ConversationalForm.animationsEnabled = false;
+            if (typeof options.animationsEnabled === 'boolean'
+                && options.animationsEnabled === false) {
+                ConversationalForm.animationsEnabled = false;
+                this.formEl.setAttribute("cf-no-animation", "");
+            }
             if (options.preventAutoFocus || this.formEl.getAttribute("cf-prevent-autofocus") == "")
                 cf_1.UserInputElement.preventAutoFocus = true;
             this.dictionary = new cf_1.Dictionary({
@@ -5559,6 +5795,7 @@ var cf;
                 robotData: options.dictionaryRobot,
                 userImage: options.userImage,
                 robotImage: options.robotImage,
+                version: this.version
             });
             this.context = options.context ? options.context : document.body;
             this.tags = options.tags;
@@ -5573,6 +5810,7 @@ var cf;
             // set the ui options
             this.uiOptions = cf_1.Helpers.extendObject(cf_1.UserInterfaceDefaultOptions, options.userInterfaceOptions || {});
             // console.log('this.uiOptions:', this.uiOptions);
+            this.options = options;
             this.init();
         }
         Object.defineProperty(ConversationalForm.prototype, "createId", {
@@ -5596,20 +5834,61 @@ var cf;
             configurable: true
         });
         ConversationalForm.prototype.init = function () {
+            switch (this.theme) {
+                case 'dark':
+                    this.theme = 'conversational-form-dark.min.css';
+                    if (!this.options.robotImage)
+                        this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%233A3A3C'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%23E5E6EA'/%3E%3C/svg%3E%0A");
+                    if (!this.options.userImage)
+                        this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23E5E6EA'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%233A3A3C'/%3E%3C/svg%3E%0A");
+                    break;
+                case 'green':
+                    this.theme = 'conversational-form-green.min.css';
+                    if (!this.options.robotImage)
+                        this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23EEEFF0'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%2300BF75'/%3E%3C/svg%3E%0A");
+                    if (!this.options.userImage)
+                        this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%2300BF75'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23EEEFF0'/%3E%3C/svg%3E%0A");
+                    break;
+                case 'blue':
+                    this.theme = 'conversational-form-irisblue.min.css';
+                    if (!this.options.robotImage)
+                        this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23E8E9EB'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%2300C2DF'/%3E%3C/svg%3E%0A");
+                    if (!this.options.userImage)
+                        this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%2300C2DF'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23E8E9EB'/%3E%3C/svg%3E%0A");
+                    break;
+                case 'purple':
+                    this.theme = 'conversational-form-purple.min.css';
+                    if (!this.options.robotImage)
+                        this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23EEEFF0'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%235A1DE4'/%3E%3C/svg%3E%0A");
+                    if (!this.options.userImage)
+                        this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%235A1DE4'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23EEEFF0'/%3E%3C/svg%3E%0A");
+                    break;
+                case 'red':
+                    this.theme = 'conversational-form-red.min.css';
+                    if (!this.options.robotImage)
+                        this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23E8E9EB'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%23FF3233'/%3E%3C/svg%3E%0A");
+                    if (!this.options.userImage)
+                        this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23FF3233'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23E8E9EB'/%3E%3C/svg%3E%0A");
+                    break;
+                default:
+                    this.theme = 'conversational-form.min.css';
+            }
+            if (this.isDevelopment) {
+                // Set path for development
+                this.cdnPath = '../build/';
+                // strip .min from filename since we do not have minified css in build
+                this.theme = this.theme.replace('.min', '');
+            }
             if (this.loadExternalStyleSheet) {
                 // not in development/examples, so inject production css
                 var head = document.head || document.getElementsByTagName("head")[0];
                 var style = document.createElement("link");
-                var githubMasterUrl = this.cdnPath + "conversational-form.min.css";
+                var githubMasterUrl = this.cdnPath + this.theme;
                 style.type = "text/css";
                 style.media = "all";
                 style.setAttribute("rel", "stylesheet");
                 style.setAttribute("href", githubMasterUrl);
                 head.appendChild(style);
-            }
-            else {
-                // expect styles to be in the document
-                this.isDevelopment = true;
             }
             // set context position to relative, else we break out of the box
             var position = window.getComputedStyle(this.context).getPropertyValue("position").toLowerCase();
@@ -5660,9 +5939,9 @@ var cf;
         */
         ConversationalForm.prototype.updateDictionaryValue = function (id, type, value) {
             cf_1.Dictionary.set(id, type, value);
-            if (["robot-image", "user-image"].indexOf(id) != -1) {
-                this.chatList.updateThumbnail(id == "robot-image", value);
-            }
+            // if(["robot-image", "user-image"].indexOf(id) != -1){
+            // 	this.chatList.updateThumbnail(id == "robot-image", value);
+            // }
         };
         ConversationalForm.prototype.getFormData = function (serialized) {
             if (serialized === void 0) { serialized = false; }
@@ -5764,6 +6043,7 @@ var cf;
             this.el = document.createElement("div");
             this.el.id = "conversational-form";
             this.el.className = "conversational-form";
+            this.addBrowserTypes(this.el);
             if (ConversationalForm.animationsEnabled)
                 this.el.classList.add("conversational-form--enable-animation");
             // add conversational form to context
@@ -5785,6 +6065,10 @@ var cf;
                 eventTarget: this.eventTarget,
                 cfReference: this
             });
+            if (ConversationalForm.showProgressBar) {
+                var progressBar = new cf_1.ProgressBar(this);
+                innerWrap.appendChild(progressBar.el);
+            }
             this.chatList.addInput(this.userInput);
             innerWrap.appendChild(this.userInput.el);
             this.onUserAnswerClickedCallback = this.onUserAnswerClicked.bind(this);
@@ -5804,6 +6088,12 @@ var cf;
         ConversationalForm.prototype.onUserAnswerClicked = function (event) {
             var tag = event.detail;
             this.flowManager.editTag(tag);
+        };
+        ConversationalForm.prototype.addBrowserTypes = function (el) {
+            if (navigator.userAgent.indexOf('Firefox') > -1)
+                el.classList.add('browser-firefox');
+            if (/Edge/.test(navigator.userAgent))
+                el.classList.add('browser-edge');
         };
         /**
         * @name addTag
@@ -5989,6 +6279,7 @@ var cf;
         ConversationalForm.animationsEnabled = true;
         ConversationalForm.illustrateAppFlow = true;
         ConversationalForm.suppressLog = true;
+        ConversationalForm.showProgressBar = false;
         ConversationalForm.preventSubmitOnEnter = false;
         ConversationalForm.hasAutoInstantiated = false;
         return ConversationalForm;
@@ -6045,6 +6336,6 @@ else {
 	}
 	}(window, function(conversationalform) {
 		// module code here....
-		return cf.ConversationalForm || conversationalform;
+		return cf;
 	}
 ));

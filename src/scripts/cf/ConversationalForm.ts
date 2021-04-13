@@ -1,6 +1,7 @@
 /// <reference path="ui/inputs/UserTextInput.ts"/>
 /// <reference path="ui/chat/ChatList.ts"/>
 /// <reference path="logic/FlowManager.ts"/>
+/// <reference path="ui/ProgressBar.ts"/>
 /// <reference path="logic/EventDispatcher.ts"/>
 /// <reference path="form-tags/Tag.ts"/>
 /// <reference path="form-tags/CfRobotMessageTag.ts"/>
@@ -45,6 +46,9 @@ namespace cf {
 
 		// can be set to false to allow for loading and packaging of Conversational Form styles within a larger project.
 		loadExternalStyleSheet?: boolean;
+		
+		// Theme
+		theme?: String;
 
 		// prevent auto appending of Conversational Form, append it yourself.
 		preventAutoAppend?: boolean;
@@ -55,8 +59,8 @@ namespace cf {
 		// prevents the initial auto focus on UserInput
 		preventAutoFocus?: boolean;
 
-		// optional horizontal scroll accerlation value, 0-1
-		scrollAccerlation?: number;
+		// optional horizontal scroll acceleration value, 0-1
+		scrollAcceleration?: number;
 
 		// allow for a global validation method, asyncronous, so a value can be validated through a server, call success || error
 		flowStepCallback?: (dto: FlowDTO, success: () => void, error: () => void) => void;
@@ -76,8 +80,13 @@ namespace cf {
 		// optional, Whenther to suppress console.log, default true
 		suppressLog?:boolean;
 
+		// Show progressbar
+		showProgressBar?:boolean;
+
 		// Prevent submit on Enter keypress: https://github.com/space10-community/conversational-form/issues/270
 		preventSubmitOnEnter?:boolean;
+
+		animationsEnabled?:boolean;
 	}
 
 	// CUI formless options
@@ -87,11 +96,12 @@ namespace cf {
 	}
 
 	export class ConversationalForm{
-		public version: string = "0.9.90";
+		public version: string = "1.0.2";
 
 		public static animationsEnabled: boolean = true;
 		public static illustrateAppFlow: boolean = true;
 		public static suppressLog: boolean = true;
+		public static showProgressBar: boolean = false;
 		public static preventSubmitOnEnter: boolean = false;
 
 		private cdnPath: string = "https://cdn.jsdelivr.net/gh/space10-community/conversational-form@{version}/dist/";
@@ -122,6 +132,7 @@ namespace cf {
 		public el: HTMLElement;
 		public chatList: ChatList;
 		public uiOptions: IUserInterfaceOptions;
+		public options:ConversationalFormOptions;
 		public preventSubmitOnEnter: boolean;
 
 		private context: HTMLElement;
@@ -133,6 +144,7 @@ namespace cf {
 		private flowManager: FlowManager;
 		private isDevelopment: boolean = false;
 		private loadExternalStyleSheet: boolean = true;
+		private theme: String = 'light';
 		private preventAutoAppend: boolean = false;
 		private preventAutoStart: boolean = false;
 		
@@ -146,6 +158,9 @@ namespace cf {
 
 			if(typeof options.suppressLog === 'boolean')
 				ConversationalForm.suppressLog = options.suppressLog;
+			
+			if(typeof options.showProgressBar === 'boolean')
+				ConversationalForm.showProgressBar = options.showProgressBar;
 
 			if(typeof options.preventSubmitOnEnter === 'boolean')
 				this.preventSubmitOnEnter = options.preventSubmitOnEnter;
@@ -168,12 +183,15 @@ namespace cf {
 			
 			this.isDevelopment = ConversationalForm.illustrateAppFlow = !!document.getElementById("conversational-form-development");
 			
-			if(this.isDevelopment || options.loadExternalStyleSheet == false){
+			if(options.loadExternalStyleSheet == false){
 				this.loadExternalStyleSheet = false;
 			}
 
-			if(!isNaN(options.scrollAccerlation))
-				ScrollController.accerlation = options.scrollAccerlation;
+			if(typeof options.theme === 'string')
+				this.theme = options.theme;
+
+			if(!isNaN(options.scrollAcceleration))
+				ScrollController.acceleration = options.scrollAcceleration;
 			
 			this.preventAutoStart = options.preventAutoStart;
 			this.preventAutoAppend = options.preventAutoAppend;
@@ -188,17 +206,24 @@ namespace cf {
 				UserInputElement.hideUserInputOnNoneTextInput = true;
 			}
 
-			// TODO: can be a string when added as formless..
-			// this.validationCallback = eval(this.domElement.getAttribute("cf-validation"));
 			this.submitCallback = options.submitCallback;
 			if(this.submitCallback && typeof this.submitCallback === "string"){
-				// a submit callback method added to json, so use eval to evaluate method
-				this.submitCallback = eval(this.submitCallback);
+				// Must be a string on window, rewritten to avoid unsafe eval() calls
+				const fn = (window as any)[this.submitCallback];
+				this.submitCallback = fn;
 			}
 
 			if(this.formEl.getAttribute("cf-no-animation") == "")
 				ConversationalForm.animationsEnabled = false;
-
+			
+			if (
+				typeof options.animationsEnabled === 'boolean'
+				&& options.animationsEnabled === false
+			) {
+				ConversationalForm.animationsEnabled = false;
+				this.formEl.setAttribute("cf-no-animation", "");
+			}
+			
 			if(options.preventAutoFocus || this.formEl.getAttribute("cf-prevent-autofocus") == "")
 				UserInputElement.preventAutoFocus = true;
 
@@ -207,6 +232,7 @@ namespace cf {
 				robotData: options.dictionaryRobot,
 				userImage: options.userImage,
 				robotImage: options.robotImage,
+				version: this.version
 			});
 
 			this.context = options.context ? options.context : document.body;
@@ -226,24 +252,60 @@ namespace cf {
 			this.uiOptions = Helpers.extendObject(UserInterfaceDefaultOptions, options.userInterfaceOptions || {});
 			// console.log('this.uiOptions:', this.uiOptions);
 
+			this.options = options;
+
 			this.init();
 		}
 
 		public init(): ConversationalForm{
-			
+			switch(this.theme) {
+				case 'dark':
+					this.theme = 'conversational-form-dark.min.css';
+					if (!this.options.robotImage) this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%233A3A3C'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%23E5E6EA'/%3E%3C/svg%3E%0A");
+					if (!this.options.userImage) this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23E5E6EA'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%233A3A3C'/%3E%3C/svg%3E%0A");
+					break;
+				case 'green':
+					this.theme = 'conversational-form-green.min.css';
+					if (!this.options.robotImage) this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23EEEFF0'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%2300BF75'/%3E%3C/svg%3E%0A");
+					if (!this.options.userImage) this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%2300BF75'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23EEEFF0'/%3E%3C/svg%3E%0A");
+					break;
+				case 'blue':
+					this.theme = 'conversational-form-irisblue.min.css';
+					if (!this.options.robotImage) this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23E8E9EB'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%2300C2DF'/%3E%3C/svg%3E%0A");
+					if (!this.options.userImage) this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%2300C2DF'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23E8E9EB'/%3E%3C/svg%3E%0A");
+					break;
+				case 'purple':
+					this.theme = 'conversational-form-purple.min.css';
+					if (!this.options.robotImage) this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23EEEFF0'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%235A1DE4'/%3E%3C/svg%3E%0A");
+					if (!this.options.userImage) this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%235A1DE4'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23EEEFF0'/%3E%3C/svg%3E%0A");
+					break;
+				case 'red':
+					this.theme = 'conversational-form-red.min.css';
+					if (!this.options.robotImage) this.updateDictionaryValue('robot-image', 'robot', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23E8E9EB'/%3E%3Crect x='66' y='66' width='68' height='68' fill='%23FF3233'/%3E%3C/svg%3E%0A");
+					if (!this.options.userImage) this.updateDictionaryValue('user-image', 'user', "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='100' cy='100' r='100' fill='%23FF3233'/%3E%3Cpath d='M100 55L138.971 122.5H61.0289L100 55Z' fill='%23E8E9EB'/%3E%3C/svg%3E%0A");
+					break;
+				default:
+					this.theme = 'conversational-form.min.css';
+			}
+
+			if (this.isDevelopment) {
+				// Set path for development
+				this.cdnPath = '../build/';
+
+				// strip .min from filename since we do not have minified css in build
+				this.theme = this.theme.replace('.min', '');
+			}
+
 			if(this.loadExternalStyleSheet){
 				// not in development/examples, so inject production css
 				const head: HTMLHeadElement = document.head || document.getElementsByTagName("head")[0];
 				const style: HTMLStyleElement = document.createElement("link");
-				const githubMasterUrl: string = this.cdnPath + "conversational-form.min.css";
+				const githubMasterUrl: string = this.cdnPath + this.theme;
 				style.type = "text/css";
 				style.media = "all";
 				style.setAttribute("rel", "stylesheet");
 				style.setAttribute("href", githubMasterUrl);
 				head.appendChild(style);
-			}else{
-				// expect styles to be in the document
-				this.isDevelopment = true;
 			}
 
 			// set context position to relative, else we break out of the box
@@ -318,9 +380,9 @@ namespace cf {
 		public updateDictionaryValue(id:string, type: string, value: string){
 			Dictionary.set(id, type, value);
 
-			if(["robot-image", "user-image"].indexOf(id) != -1){
-				this.chatList.updateThumbnail(id == "robot-image", value);
-			}
+			// if(["robot-image", "user-image"].indexOf(id) != -1){
+			// 	this.chatList.updateThumbnail(id == "robot-image", value);
+			// }
 		}
 
 		public getFormData(serialized: boolean = false): FormData | any{
@@ -437,6 +499,8 @@ namespace cf {
 			this.el.id = "conversational-form";
 			this.el.className = "conversational-form";
 
+			this.addBrowserTypes(this.el);
+
 			if(ConversationalForm.animationsEnabled)
 				this.el.classList.add("conversational-form--enable-animation");
 
@@ -465,6 +529,11 @@ namespace cf {
 				cfReference: this
 			});
 
+			if (ConversationalForm.showProgressBar) {
+				const progressBar = new ProgressBar(this);
+				innerWrap.appendChild(progressBar.el);
+			}
+
 			this.chatList.addInput(this.userInput);
 
 			innerWrap.appendChild(this.userInput.el);
@@ -490,6 +559,11 @@ namespace cf {
 		private onUserAnswerClicked(event: CustomEvent): void {
 			const tag: ITag | ITagGroup = event.detail;
 			this.flowManager.editTag(tag);
+		}
+
+		private addBrowserTypes(el:Element):void {
+			if (navigator.userAgent.indexOf('Firefox') > -1) el.classList.add('browser-firefox');
+			if (/Edge/.test(navigator.userAgent)) el.classList.add('browser-edge');
 		}
 
 		/**
